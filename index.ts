@@ -24,15 +24,11 @@ if (!SENDER_GMAIL_USER || !SENDER_GMAIL_PASSWORD || !TARGET_GMAIL_USER) {
   throw new Error('SENDER_GMAIL_USER and SENDER_GMAIL_PASSWORD and TARGET_GMAIL_USER must be set');
 }
 
-if (!G_SEARCH_LIST || !SS_SEARCH_LIST) {
-  throw new Error('G_SEARCH_LIST and SS_SEARCH_LIST must be set');
-}
-
 type SearchItem = { name: string };
 
 // 환경변수에서 검색 리스트 파싱 (쉼표로 구분)
-// 예: G_SEARCH_LIST="상자,행복" -> [{name: "상자"}, {name: "행복"}]
-const parseSearchList = (envValue: string): SearchItem[] => {
+const parseSearchList = (envValue: string | undefined): SearchItem[] => {
+  if (!envValue) return [];
   return envValue
     .split(',')
     .map((name) => name.trim())
