@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "es6",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "lib": [
+      "esnext",
+      "dom"
+    ],
+    "declaration": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "sourceMap": true,
+    "allowJs": true,
+    "strict": true,
+    "resolveJsonModule": true,
+    "incremental": true,
+    "downlevelIteration": true,
+    "preserveValueImports": false
+  }
+}
