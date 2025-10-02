@@ -5,11 +5,12 @@ on:
     - cron: '*/3 * * * *'
   workflow_dispatch:
 
-
 env:
   SENDER_GMAIL_USER: ${{ secrets.SENDER_GMAIL_USER }}
   SENDER_GMAIL_PASSWORD: ${{ secrets.SENDER_GMAIL_PASSWORD }}
   TARGET_GMAIL_USER: ${{ secrets.TARGET_GMAIL_USER }}
+  G_SEARCH_LIST: ${{ secrets.G_SEARCH_LIST }}
+  SS_SEARCH_LIST: ${{ secrets.SS_SEARCH_LIST }}
 
 jobs:
   build:
