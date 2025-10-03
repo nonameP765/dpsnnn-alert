@@ -49,6 +49,8 @@ if (!SENDER_GMAIL_USER || !SENDER_GMAIL_PASSWORD || targetEmailList.length === 0
   throw new Error('SENDER_GMAIL_USER, SENDER_GMAIL_PASSWORD, TARGET_GMAIL_USER must be set');
 }
 
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function sendEmail({
   urlList,
   name
@@ -95,62 +97,75 @@ async function processSearchItem(
   url: string,
   category: string
 ) {
-  const page = await browser.newPage();
+  const maxAttempts = 10;
+  const runAttempt = async (attempt: number): Promise<void> => {
+    const page = await browser.newPage();
 
-  try {
-    await page.goto(url);
-    await page.setViewport({ width: 1080, height: 1024 });
+    try {
+      await page.goto(url);
+      await page.setViewport({ width: 1080, height: 1024 });
 
-    await page.waitForSelector('.booking_list', {
-      timeout: 5000
-    });
-
-    const availableBookings = await page.evaluate((searchName: string) => {
-      const bookingItems = Array.from(document.querySelectorAll('.booking_list'));
-      return bookingItems
-        .filter((item) => !item.classList.contains('closed'))
-        .filter((item) => {
-          const text = item.textContent?.trim() || '';
-          return text.includes(searchName);
-        })
-        .map((item) => {
-          const text = item.textContent?.trim() || '';
-          const link = item.querySelector('a')?.getAttribute('href') || '';
-          return { text, link };
-        });
-    }, item.name);
-
-    if (availableBookings.length > 0) {
-      console.log(`[${category}] ${item.name} - 예약 가능한 항목들:`);
-
-      // URL에서 베이스 URL 추출 (프로토콜 + 도메인)
-      const urlObj = new URL(url);
-      const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
-
-      const sendEmailList = availableBookings
-        .map((booking: { text: string; link: string }) => {
-          if (booking.link) {
-            const fullUrl = booking.link.startsWith('http')
-              ? booking.link
-              : `${baseUrl}${booking.link.startsWith('/') ? booking.link : `/${booking.link}`}`;
-            return { name: booking.text, value: fullUrl };
-          }
-          return null;
-        })
-        .filter((item) => item !== null);
-
-      await sendEmail({
-        urlList: sendEmailList,
-        name: item.name
+      await page.waitForSelector('.booking_list', {
+        timeout: 5000
       });
-    } else {
-      console.log(`[${category}] ${item.name} - 예약 가능한 항목이 없습니다`);
+
+      const availableBookings = await page.evaluate((searchName: string) => {
+        const bookingItems = Array.from(document.querySelectorAll('.booking_list'));
+        return bookingItems
+          .filter((item) => !item.classList.contains('closed'))
+          .filter((item) => {
+            const text = item.textContent?.trim() || '';
+            return text.includes(searchName);
+          })
+          .map((item) => {
+            const text = item.textContent?.trim() || '';
+            const link = item.querySelector('a')?.getAttribute('href') || '';
+            return { text, link };
+          });
+      }, item.name);
+
+      if (availableBookings.length > 0) {
+        console.log(`[${category}] ${item.name} - 예약 가능한 항목들:`);
+
+        // URL에서 베이스 URL 추출 (프로토콜 + 도메인)
+        const urlObj = new URL(url);
+        const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+
+        const sendEmailList = availableBookings
+          .map((booking: { text: string; link: string }) => {
+            if (booking.link) {
+              const fullUrl = booking.link.startsWith('http')
+                ? booking.link
+                : `${baseUrl}${booking.link.startsWith('/') ? booking.link : `/${booking.link}`}`;
+              return { name: booking.text, value: fullUrl };
+            }
+            return null;
+          })
+          .filter((item): item is { name: string; value: string } => item !== null);
+
+        await sendEmail({
+          urlList: sendEmailList,
+          name: item.name
+        });
+      } else {
+        console.log(`[${category}] ${item.name} - 예약 가능한 항목이 없습니다`);
+      }
+    } catch (e) {
+      if (attempt < maxAttempts) {
+        console.log(
+          `[${category}] ${item.name} - booking_list를 찾을 수 없습니다 (재시도 ${attempt}/${maxAttempts})`
+        );
+        await delay(5000);
+        await runAttempt(attempt + 1);
+      } else {
+        console.log(`[${category}] ${item.name} - booking_list를 찾을 수 없습니다 (최종 실패)`);
+      }
+    } finally {
+      await page.close();
     }
-  } catch (e) {
-    console.log(`[${category}] ${item.name} - booking_list를 찾을 수 없습니다`);
-  } finally {
-    await page.close();
-  }
+  };
+
+  await runAttempt(1);
 }
 
 (async () => {
