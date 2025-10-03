@@ -20,10 +20,6 @@ const {
   SS_SEARCH_LIST
 } = process.env;
 
-if (!SENDER_GMAIL_USER || !SENDER_GMAIL_PASSWORD || !TARGET_GMAIL_USER) {
-  throw new Error('SENDER_GMAIL_USER and SENDER_GMAIL_PASSWORD and TARGET_GMAIL_USER must be set');
-}
-
 type SearchItem = { name: string };
 
 // 환경변수에서 검색 리스트 파싱 (쉼표로 구분)
@@ -38,6 +34,20 @@ const parseSearchList = (envValue: string | undefined): SearchItem[] => {
 
 const gSearchList: SearchItem[] = parseSearchList(G_SEARCH_LIST);
 const ssSearchList: SearchItem[] = parseSearchList(SS_SEARCH_LIST);
+
+const parseTargetEmailList = (envValue: string | undefined): string[] => {
+  if (!envValue) return [];
+  return envValue
+    .split(',')
+    .map((email) => email.trim())
+    .filter((email) => email.length > 0);
+};
+
+const targetEmailList = parseTargetEmailList(TARGET_GMAIL_USER);
+
+if (!SENDER_GMAIL_USER || !SENDER_GMAIL_PASSWORD || targetEmailList.length === 0) {
+  throw new Error('SENDER_GMAIL_USER, SENDER_GMAIL_PASSWORD, TARGET_GMAIL_USER must be set');
+}
 
 async function sendEmail({
   urlList,
@@ -58,8 +68,8 @@ async function sendEmail({
   });
 
   await transporter.sendMail({
-    from: '"Yuki" <nonamep@setsuna.kr>',
-    to: TARGET_GMAIL_USER,
+    from: '"Yuki" <nonamep765@gmail.com>',
+    to: targetEmailList.join(', '),
     subject: `단편선 ${name} 예약가능!!`,
     html: `
 <p>
