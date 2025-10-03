@@ -97,7 +97,7 @@ async function processSearchItem(
   url: string,
   category: string
 ) {
-  const maxAttempts = 10;
+  const maxAttempts = 6;
   const runAttempt = async (attempt: number): Promise<void> => {
     const page = await browser.newPage();
 
@@ -106,7 +106,7 @@ async function processSearchItem(
       await page.setViewport({ width: 1080, height: 1024 });
 
       await page.waitForSelector('.booking_list', {
-        timeout: 5000
+        timeout: 10000
       });
 
       const availableBookings = await page.evaluate((searchName: string) => {
