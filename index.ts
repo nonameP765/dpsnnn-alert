@@ -145,7 +145,9 @@ async function processSearchItem(
 
 (async () => {
   try {
-    const browser = await puppeteer.launch();
+    const browser = await puppeteer.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
 
     // G와 SS 검색을 병렬로 처리
     const searchTasks = [
