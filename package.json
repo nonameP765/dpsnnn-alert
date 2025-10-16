@@ -4,7 +4,8 @@
   "scripts": {
     "tsc": "tsc",
     "lint": "eslint --ext .ts .",
-    "start": "ts-node index.ts"
+    "dev": "NODE_ENV=development bun run index.ts",
+    "start": "NODE_ENV=production bun run index.ts"
   },
   "devDependencies": {
     "@types/node": "^20.11.25",

@@ -1,3 +1,4 @@
+/* eslint-disable no-await-in-loop */
 import puppeteer, { Browser } from 'puppeteer';
 import nodemailer from 'nodemailer';
 import * as process from 'process';
@@ -11,29 +12,35 @@ dayjs.extend(timezone);
 dayjs.tz.setDefault('Asia/Seoul');
 
 const DPSNNN_G_URL = 'https://www.dpsnnn.com/reserve_g';
-const DPSNNN_SS_URL = 'https://dpsnnn-s.imweb.me/reserve_ss';
+// const DPSNNN_SS_URL = 'https://dpsnnn-s.imweb.me/reserve_ss';
+
+// 개발 모드 확인
+const isDevelopment = process.env.NODE_ENV === 'development';
+
+// 개발 모드일 때 기본값 사용
 const {
   SENDER_GMAIL_USER,
   SENDER_GMAIL_PASSWORD,
   TARGET_GMAIL_USER,
-  G_SEARCH_LIST,
-  SS_SEARCH_LIST
+  // G_SEARCH_LIST = isDevelopment ? '25,5,6,7,8,9,10,11,12,36,35,34,33,32,31,30,29,28' : undefined
+  G_SEARCH_LIST = isDevelopment ? '25,5,6,7,8,9,10,11,12,36,35,34,33,32,31,30,29,28' : undefined
+  // SS_SEARCH_LIST = isDevelopment ? '' : undefined
 } = process.env;
 
-type SearchItem = { name: string };
+type SearchItem = { idx: string };
 
 // 환경변수에서 검색 리스트 파싱 (쉼표로 구분)
 const parseSearchList = (envValue: string | undefined): SearchItem[] => {
   if (!envValue) return [];
   return envValue
     .split(',')
-    .map((name) => name.trim())
-    .filter((name) => name.length > 0)
-    .map((name) => ({ name }));
+    .map((idx) => idx.trim())
+    .filter((idx) => idx.length > 0)
+    .map((idx) => ({ idx }));
 };
 
 const gSearchList: SearchItem[] = parseSearchList(G_SEARCH_LIST);
-const ssSearchList: SearchItem[] = parseSearchList(SS_SEARCH_LIST);
+// const ssSearchList: SearchItem[] = parseSearchList(SS_SEARCH_LIST);
 
 const parseTargetEmailList = (envValue: string | undefined): string[] => {
   if (!envValue) return [];
@@ -45,22 +52,55 @@ const parseTargetEmailList = (envValue: string | undefined): string[] => {
 
 const targetEmailList = parseTargetEmailList(TARGET_GMAIL_USER);
 
-if (!SENDER_GMAIL_USER || !SENDER_GMAIL_PASSWORD || targetEmailList.length === 0) {
+if (
+  (!SENDER_GMAIL_USER || !SENDER_GMAIL_PASSWORD || targetEmailList.length === 0) &&
+  !isDevelopment
+) {
   throw new Error('SENDER_GMAIL_USER, SENDER_GMAIL_PASSWORD, TARGET_GMAIL_USER must be set');
 }
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const delay = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
-async function sendEmail({
-  urlList,
-  name
-}: {
-  urlList: {
-    name: string;
-    value: string;
-  }[];
-  name: string;
-}) {
+// 오늘 포함 주말 제외 1주일간의 날짜를 YYYYMMDD 형식으로 반환
+const getWeekdayDates = (): string[] => {
+  const dates: string[] = [];
+  let currentDate = dayjs().tz('Asia/Seoul');
+
+  while (dates.length < 5) {
+    // 평일 5일
+    const dayOfWeek = currentDate.day(); // 0: 일요일, 6: 토요일
+
+    // 주말이 아니면 추가
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      dates.push(currentDate.format('YYYYMMDD'));
+    }
+
+    currentDate = currentDate.add(1, 'day');
+  }
+
+  return dates;
+};
+
+async function sendEmail({ url, name }: { url: string; name: string }) {
+  // 개발 모드일 때는 콘솔 로그만 출력
+  if (isDevelopment) {
+    console.log('\n========== 📧 메일 발송 (개발 모드 - 실제로 발송되지 않음) ==========');
+    console.log(`수신자: ${targetEmailList.join(', ')}`);
+    console.log(`제목: 단편선 ${name} 예약가능!!`);
+    console.log('내용:');
+    const urlQuery = new URL(url);
+    const urlQueryParams = urlQuery.searchParams;
+    const day = urlQueryParams.get('day');
+    const date = day ? dayjs(day).format('YYYY-MM-DD') : '';
+    console.log(`  - ${url}`);
+    console.log('================================================================\n');
+    return;
+  }
+
+  // 프로덕션 모드일 때는 실제로 메일 발송
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -77,116 +117,204 @@ async function sendEmail({
 <p>
     단편선 <b>${name}</b> 예약가능<br>
     <br>
-    ${urlList
-      .map((url) => {
-        const urlQuery = new URL(url.value);
-        const urlQueryParams = urlQuery.searchParams;
-        const day = urlQueryParams.get('day');
-        const date = day ? dayjs(day).format('YYYY-MM-DD') : '';
-        return `<a href="${url.value}">${date ? `${date} ` : ''}${url.name.split(' / ')[1]}</a>`;
-      })
-      .join('<br>')}
+    <a href="${url}">${url}</a>
 </p>
 `
   });
 }
 
-async function processSearchItem(
-  browser: Browser,
-  item: SearchItem,
-  url: string,
-  category: string
-) {
-  const maxAttempts = 6;
-  const runAttempt = async (attempt: number): Promise<void> => {
-    const page = await browser.newPage();
+type SearchTask = {
+  idx: string;
+  date: string;
+  url: string;
+};
 
-    try {
-      await page.goto(url);
-      await page.setViewport({ width: 1080, height: 1024 });
+// 각 URL을 탐색하는 함수
+async function checkReservation(browser: Browser, task: SearchTask): Promise<void> {
+  const page = await browser.newPage();
 
-      await page.waitForSelector('.booking_list', {
-        timeout: 10000
-      });
+  try {
+    const formattedDate = dayjs(task.date, 'YYYYMMDD').format('YYYY-MM-DD');
+    console.log(`\n🔍 탐색 시작: idx=${task.idx}, date=${formattedDate}`);
+    console.log(`   URL: ${task.url}`);
 
-      const availableBookings = await page.evaluate((searchName: string) => {
-        const bookingItems = Array.from(document.querySelectorAll('.booking_list'));
-        return bookingItems
-          .filter((item) => !item.classList.contains('closed'))
-          .filter((item) => {
-            const text = item.textContent?.trim() || '';
-            return text.includes(searchName);
-          })
-          .map((item) => {
-            const text = item.textContent?.trim() || '';
-            const link = item.querySelector('a')?.getAttribute('href') || '';
-            return { text, link };
-          });
-      }, item.name);
+    await page.goto(task.url, { waitUntil: 'networkidle2' });
+    await page.setViewport({ width: 1080, height: 1024 });
 
-      if (availableBookings.length > 0) {
-        console.log(`[${category}] ${item.name} - 예약 가능한 항목들:`);
+    // alert 다이얼로그 리스너 설정
+    let alertAppeared = false;
+    page.on('dialog', async (dialog) => {
+      alertAppeared = true;
+      console.log(`   ❌ Alert 발생: ${dialog.message()}`);
+      await dialog.dismiss();
+    });
 
-        // URL에서 베이스 URL 추출 (프로토콜 + 도메인)
-        const urlObj = new URL(url);
-        const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+    // 현재 URL 저장
+    const currentUrl = page.url();
 
-        const sendEmailList = availableBookings
-          .map((booking: { text: string; link: string }) => {
-            if (booking.link) {
-              const fullUrl = booking.link.startsWith('http')
-                ? booking.link
-                : `${baseUrl}${booking.link.startsWith('/') ? booking.link : `/${booking.link}`}`;
-              return { name: booking.text, value: fullUrl };
-            }
-            return null;
-          })
-          .filter((item): item is { name: string; value: string } => item !== null);
+    // "예약하기" 버튼 찾기
+    const reserveButtons = await page.$$('a');
+    let reserveButtonFound = false;
 
-        await sendEmail({
-          urlList: sendEmailList,
-          name: item.name
+    for (const button of reserveButtons) {
+      const buttonText = await button.evaluate((el) => el.textContent?.trim() || '');
+      if (buttonText.includes('예약하기')) {
+        reserveButtonFound = true;
+        console.log('   ✓ "예약하기" 버튼 발견');
+
+        // 예약하기 버튼 클릭
+        await button.click();
+        console.log('   ✓ "예약하기" 버튼 클릭');
+
+        // .booking_content_detail > div 에서 텍스트 가져오기
+        const bookingName = await page.evaluate(() => {
+          const detailElement = document.querySelector('.booking_content_detail > div');
+          return detailElement ? detailElement.textContent?.trim() || '' : '';
         });
-      } else {
-        console.log(`[${category}] ${item.name} - 예약 가능한 항목이 없습니다`);
-      }
-    } catch (e) {
-      if (attempt < maxAttempts) {
-        console.log(
-          `[${category}] ${item.name} - booking_list를 찾을 수 없습니다 (재시도 ${attempt}/${maxAttempts})`
-        );
-        await delay(5000);
-        await runAttempt(attempt + 1);
-      } else {
-        console.log(`[${category}] ${item.name} - booking_list를 찾을 수 없습니다 (최종 실패)`);
-      }
-    } finally {
-      await page.close();
-    }
-  };
 
-  await runAttempt(1);
+        // 모달 팝업이 나타날 때까지 대기
+        await delay(800);
+
+        // "비회원 예약" 버튼 찾기 및 클릭
+        const nonMemberButtonClicked = await page.evaluate(() => {
+          const buttons = Array.from(document.querySelectorAll('a, button'));
+          const button = buttons.find((btn) => {
+            const text = btn.textContent?.trim() || '';
+            return text.includes('비회원') && text.includes('예약');
+          });
+          if (button && button instanceof HTMLElement) {
+            button.click();
+            return true;
+          }
+          return false;
+        });
+
+        if (!nonMemberButtonClicked) {
+          console.log('   ⚠️ "비회원 예약" 버튼을 찾을 수 없음\n');
+          break;
+        }
+
+        console.log('   ✓ "비회원 예약" 버튼 클릭');
+
+        // 리다이렉트 또는 alert 대기
+        await delay(800);
+
+        // alert가 나타났는지 확인
+        if (alertAppeared) {
+          console.log('   ❌ 예약 불가 (alert 발생)\n');
+          break;
+        }
+        // 리다이렉트 또는 alert 대기
+        await delay(800);
+
+        // 페이지 리다이렉트 확인
+        const newUrl = page.url();
+        const redirected = currentUrl !== newUrl;
+
+        if (redirected) {
+          console.log('   ✅ 페이지 리다이렉트 감지 - 예약 가능!');
+
+          console.log(`   📝 예약 이름: ${bookingName || '(이름 없음)'}`);
+
+          // 메일 발송
+          await sendEmail({
+            url: task.url,
+            name: `${formattedDate} / ${bookingName}`
+          });
+
+          console.log('   ✅ 메일 발송 완료\n');
+        } else {
+          console.log('   ⚠️ 리다이렉트가 발생하지 않음 - 상태 불명확\n');
+        }
+
+        break; // 첫 번째 "예약하기" 버튼만 확인
+      }
+    }
+
+    if (!reserveButtonFound) {
+      console.log('   ⚠️ "예약하기" 버튼을 찾을 수 없음\n');
+    }
+  } catch (e) {
+    console.log(`   ❌ 오류 발생:`, e);
+  } finally {
+    await page.close();
+  }
+
+  // 다음 탐색 전 딜레이 (429 에러 방지)
+  await delay(1000);
+}
+
+// 한 사이클의 크롤링 작업을 수행하는 함수
+async function runCrawlingCycle(cycleNumber: number): Promise<void> {
+  console.log(`\n${'='.repeat(80)}`);
+  console.log(
+    `🔄 사이클 #${cycleNumber} 시작 - ${dayjs().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss')}`
+  );
+  console.log(`${'='.repeat(80)}\n`);
+
+  // 주말 제외 1주일간의 날짜 가져오기
+  const weekdayDates = getWeekdayDates();
+  console.log(
+    `📅 검색 대상 날짜 (주말 제외): ${weekdayDates
+      .map((d) => dayjs(d, 'YYYYMMDD').format('YYYY-MM-DD'))
+      .join(', ')}\n`
+  );
+
+  // 각 idx와 날짜 조합으로 SearchTask 생성
+  const searchTasks: SearchTask[] = [];
+
+  for (const item of gSearchList) {
+    for (const date of weekdayDates) {
+      searchTasks.push({
+        idx: item.idx,
+        date,
+        url: `${DPSNNN_G_URL}?idx=${item.idx}&day=${date}&endDay=${date}`
+      });
+    }
+  }
+
+  console.log(
+    `🔍 총 ${searchTasks.length}개의 검색 작업 (idx ${gSearchList.length}개 × 날짜 ${weekdayDates.length}개)`
+  );
+  console.log('⏱️  순차적으로 처리합니다 (인간처럼 천천히)...\n');
+
+  const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+
+  try {
+    // 모든 검색 작업을 순차적으로 처리 (병렬 X)
+    for (let i = 0; i < searchTasks.length; i += 1) {
+      const task = searchTasks[i];
+      console.log(`\n[${i + 1}/${searchTasks.length}] 탐색 중...`);
+      await checkReservation(browser, task);
+    }
+
+    console.log(`\n✅ 사이클 #${cycleNumber} 완료!`);
+  } finally {
+    await browser.close();
+  }
 }
 
 (async () => {
-  try {
-    const browser = await puppeteer.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+  console.log(`🚀 실행 모드: ${isDevelopment ? '개발(Development)' : '프로덕션(Production)'}`);
+  if (isDevelopment) {
+    console.log('📝 개발 모드에서는 기본값을 사용하며, 메일은 실제로 발송되지 않습니다.');
+  }
+  console.log('🔁 크롤링을 계속 반복합니다. 종료하려면 Ctrl+C를 누르세요.\n');
 
-    // G와 SS 검색을 병렬로 처리
-    const searchTasks = [
-      ...gSearchList.map((item) => processSearchItem(browser, item, DPSNNN_G_URL, '강남')),
-      ...ssSearchList.map((item) => processSearchItem(browser, item, DPSNNN_SS_URL, '성수'))
-    ];
+  let cycleNumber = 1;
 
-    await Promise.all(searchTasks);
-
-    await browser.close();
-
-    process.exit(0);
-  } catch (e) {
-    console.error(e);
-    process.exit(1);
+  // 무한 루프로 계속 반복
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      console.log(`\n⏰ ${dayjs().tz('Asia/Seoul').format('HH:mm:ss')} 사이클 시작`);
+      await runCrawlingCycle(cycleNumber);
+      console.log(`\n⏰ ${dayjs().tz('Asia/Seoul').format('HH:mm:ss')} 사이클 종료`);
+      cycleNumber += 1;
+    } catch (e) {
+      console.error(`\n❌ 사이클 #${cycleNumber}에서 오류 발생:`, e);
+    }
   }
 })();

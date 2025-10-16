@@ -2,8 +2,17 @@ name: dpsnnn Cron Job
 
 on:
   schedule:
-    - cron: '*/3 * * * *'
+    - cron: '0 1 * * *'
+    - cron: '0 5 * * *'
+    - cron: '0 9 * * *'
+    - cron: '0 13 * * *'
+    - cron: '0 17 * * *'
+    - cron: '0 21 * * *'
   workflow_dispatch:
+
+concurrency:
+  group: run-bot
+  cancel-in-progress: true
 
 env:
   SENDER_GMAIL_USER: ${{ secrets.SENDER_GMAIL_USER }}
