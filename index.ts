@@ -65,7 +65,7 @@ const delay = (ms: number) =>
   });
 
 // 병렬 실행 개수 설정 (1 = 순차 실행, 2 이상 = 병렬 실행)
-const CONCURRENT_LIMIT = 10;
+const CONCURRENT_LIMIT = 21;
 
 // 오늘 포함 1주일간의 날짜를 YYYYMMDD 형식으로 반환 (주말 포함)
 const getWeekDates = (): string[] => {
