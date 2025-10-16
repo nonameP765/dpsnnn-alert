@@ -186,7 +186,7 @@ async function checkReservation(browser: Browser, task: SearchTask): Promise<voi
         );
         // 페이지 새로고침
         await page.reload({ waitUntil: 'networkidle2' });
-        await delay(1000);
+        await delay(500);
       }
     }
 
@@ -202,7 +202,7 @@ async function checkReservation(browser: Browser, task: SearchTask): Promise<voi
       console.log(`   ${separator}\n`);
     } else {
       // 모달 팝업이 나타날 때까지 대기
-      await delay(800);
+      await delay(500);
 
       // "비회원 예약" 버튼 찾기 및 클릭 (재시도 로직)
       const maxNonMemberButtonAttempts = 5;
@@ -233,7 +233,7 @@ async function checkReservation(browser: Browser, task: SearchTask): Promise<voi
           console.log(
             `   ⏳ "비회원 예약" 버튼을 찾을 수 없음, 재시도 중... (${attempt}/${maxNonMemberButtonAttempts})`
           );
-          await delay(1000);
+          await delay(500);
         }
       }
 
@@ -241,14 +241,14 @@ async function checkReservation(browser: Browser, task: SearchTask): Promise<voi
         console.log('   ❌ "비회원 예약" 버튼을 찾을 수 없음 (최종 실패)\n');
       } else {
         // 리다이렉트 또는 alert 대기
-        await delay(800);
+        await delay(1000);
 
         // alert가 나타났는지 확인
         if (alertAppeared) {
           console.log('   ❌ 예약 불가 (alert 발생)\n');
         } else {
           // 리다이렉트 또는 alert 대기
-          await delay(800);
+          await delay(1000);
 
           // 페이지 리다이렉트 확인
           const newUrl = page.url();
