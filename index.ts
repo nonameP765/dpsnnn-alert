@@ -64,20 +64,16 @@ const delay = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
-// 오늘 포함 주말 제외 1주일간의 날짜를 YYYYMMDD 형식으로 반환
-const getWeekdayDates = (): string[] => {
+// 병렬 실행 개수 설정 (1 = 순차 실행, 2 이상 = 병렬 실행)
+const CONCURRENT_LIMIT = 10;
+
+// 오늘 포함 1주일간의 날짜를 YYYYMMDD 형식으로 반환 (주말 포함)
+const getWeekDates = (): string[] => {
   const dates: string[] = [];
   let currentDate = dayjs().tz('Asia/Seoul');
 
-  while (dates.length < 5) {
-    // 평일 5일
-    const dayOfWeek = currentDate.day(); // 0: 일요일, 6: 토요일
-
-    // 주말이 아니면 추가
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(currentDate.format('YYYYMMDD'));
-    }
-
+  for (let i = 0; i < 7; i += 1) {
+    dates.push(currentDate.format('YYYYMMDD'));
     currentDate = currentDate.add(1, 'day');
   }
 
@@ -290,10 +286,10 @@ async function runCrawlingCycle(cycleNumber: number): Promise<void> {
   );
   console.log(`${'='.repeat(80)}\n`);
 
-  // 주말 제외 1주일간의 날짜 가져오기
-  const weekdayDates = getWeekdayDates();
+  // 1주일간의 날짜 가져오기 (주말 포함)
+  const weekDates = getWeekDates();
   console.log(
-    `📅 검색 대상 날짜 (주말 제외): ${weekdayDates
+    `📅 검색 대상 날짜 (주말 포함): ${weekDates
       .map((d) => dayjs(d, 'YYYYMMDD').format('YYYY-MM-DD'))
       .join(', ')}\n`
   );
@@ -302,7 +298,7 @@ async function runCrawlingCycle(cycleNumber: number): Promise<void> {
   const searchTasks: SearchTask[] = [];
 
   for (const item of gSearchList) {
-    for (const date of weekdayDates) {
+    for (const date of weekDates) {
       searchTasks.push({
         idx: item.idx,
         date,
@@ -312,20 +308,26 @@ async function runCrawlingCycle(cycleNumber: number): Promise<void> {
   }
 
   console.log(
-    `🔍 총 ${searchTasks.length}개의 검색 작업 (idx ${gSearchList.length}개 × 날짜 ${weekdayDates.length}개)`
+    `🔍 총 ${searchTasks.length}개의 검색 작업 (idx ${gSearchList.length}개 × 날짜 ${weekDates.length}개)`
   );
-  console.log('⏱️  순차적으로 처리합니다 (인간처럼 천천히)...\n');
+  console.log(`⏱️  ${CONCURRENT_LIMIT}개씩 병렬로 처리합니다...\n`);
 
   const browser = await puppeteer.launch({
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
   try {
-    // 모든 검색 작업을 순차적으로 처리 (병렬 X)
-    for (let i = 0; i < searchTasks.length; i += 1) {
-      const task = searchTasks[i];
-      console.log(`\n[${i + 1}/${searchTasks.length}] 탐색 중...`);
-      await checkReservation(browser, task);
+    // CONCURRENT_LIMIT만큼 병렬로 처리
+    for (let i = 0; i < searchTasks.length; i += CONCURRENT_LIMIT) {
+      const batch = searchTasks.slice(i, i + CONCURRENT_LIMIT);
+      const batchPromises = batch.map((task, index) => {
+        const globalIndex = i + index + 1;
+        console.log(`\n[${globalIndex}/${searchTasks.length}] 탐색 중...`);
+        return checkReservation(browser, task);
+      });
+
+      // 현재 배치의 모든 작업이 완료될 때까지 대기
+      await Promise.all(batchPromises);
     }
 
     console.log(`\n✅ 사이클 #${cycleNumber} 완료!`);
