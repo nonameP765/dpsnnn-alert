@@ -91,10 +91,6 @@ async function sendEmail({ url, name }: { url: string; name: string }) {
     console.log(`수신자: ${targetEmailList.join(', ')}`);
     console.log(`제목: 단편선 ${name} 예약가능!!`);
     console.log('내용:');
-    const urlQuery = new URL(url);
-    const urlQueryParams = urlQuery.searchParams;
-    const day = urlQueryParams.get('day');
-    const date = day ? dayjs(day).format('YYYY-MM-DD') : '';
     console.log(`  - ${url}`);
     console.log('================================================================\n');
     return;
@@ -152,31 +148,68 @@ async function checkReservation(browser: Browser, task: SearchTask): Promise<voi
     // 현재 URL 저장
     const currentUrl = page.url();
 
-    // "예약하기" 버튼 찾기
-    const reserveButtons = await page.$$('a');
+    // "예약하기" 버튼 찾기 (재시도 로직)
+    const maxReserveButtonAttempts = 5;
     let reserveButtonFound = false;
+    let bookingName = '';
 
-    for (const button of reserveButtons) {
-      const buttonText = await button.evaluate((el) => el.textContent?.trim() || '');
-      if (buttonText.includes('예약하기')) {
-        reserveButtonFound = true;
-        console.log('   ✓ "예약하기" 버튼 발견');
+    for (let attempt = 1; attempt <= maxReserveButtonAttempts; attempt += 1) {
+      const reserveButtons = await page.$$('a');
 
-        // 예약하기 버튼 클릭
-        await button.click();
-        console.log('   ✓ "예약하기" 버튼 클릭');
+      for (const button of reserveButtons) {
+        const buttonText = await button.evaluate((el) => el.textContent?.trim() || '');
+        if (buttonText.includes('예약하기')) {
+          reserveButtonFound = true;
+          console.log(`   ✓ "예약하기" 버튼 발견 (시도 ${attempt}/${maxReserveButtonAttempts})`);
 
-        // .booking_content_detail > div 에서 텍스트 가져오기
-        const bookingName = await page.evaluate(() => {
-          const detailElement = document.querySelector('.booking_content_detail > div');
-          return detailElement ? detailElement.textContent?.trim() || '' : '';
-        });
+          // 예약하기 버튼 클릭
+          await button.click();
+          console.log('   ✓ "예약하기" 버튼 클릭');
 
-        // 모달 팝업이 나타날 때까지 대기
-        await delay(800);
+          // .booking_content_detail > div 에서 텍스트 가져오기
+          bookingName = await page.evaluate(() => {
+            const detailElement = document.querySelector('.booking_content_detail > div');
+            return detailElement ? detailElement.textContent?.trim() || '' : '';
+          });
 
-        // "비회원 예약" 버튼 찾기 및 클릭
-        const nonMemberButtonClicked = await page.evaluate(() => {
+          break;
+        }
+      }
+
+      if (reserveButtonFound) {
+        break;
+      }
+
+      if (attempt < maxReserveButtonAttempts) {
+        console.log(
+          `   ⏳ "예약하기" 버튼을 찾을 수 없음, 새로고침 후 재시도... (${attempt}/${maxReserveButtonAttempts})`
+        );
+        // 페이지 새로고침
+        await page.reload({ waitUntil: 'networkidle2' });
+        await delay(1000);
+      }
+    }
+
+    if (!reserveButtonFound) {
+      console.log('   ❌ "예약하기" 버튼을 찾을 수 없음 (최종 실패)');
+
+      // HTML 코드 출력
+      const htmlContent = await page.content();
+      const separator = '='.repeat(78);
+      console.log('\n   📄 페이지 HTML 코드:');
+      console.log(`   ${separator}`);
+      console.log(htmlContent);
+      console.log(`   ${separator}\n`);
+    } else {
+      // 모달 팝업이 나타날 때까지 대기
+      await delay(800);
+
+      // "비회원 예약" 버튼 찾기 및 클릭 (재시도 로직)
+      const maxNonMemberButtonAttempts = 5;
+      let nonMemberButtonClicked = false;
+
+      for (let attempt = 1; attempt <= maxNonMemberButtonAttempts; attempt += 1) {
+        nonMemberButtonClicked = await page.evaluate(() => {
           const buttons = Array.from(document.querySelectorAll('a, button'));
           const button = buttons.find((btn) => {
             const text = btn.textContent?.trim() || '';
@@ -189,50 +222,55 @@ async function checkReservation(browser: Browser, task: SearchTask): Promise<voi
           return false;
         });
 
-        if (!nonMemberButtonClicked) {
-          console.log('   ⚠️ "비회원 예약" 버튼을 찾을 수 없음\n');
+        if (nonMemberButtonClicked) {
+          console.log(
+            `   ✓ "비회원 예약" 버튼 클릭 (시도 ${attempt}/${maxNonMemberButtonAttempts})`
+          );
           break;
         }
 
-        console.log('   ✓ "비회원 예약" 버튼 클릭');
+        if (attempt < maxNonMemberButtonAttempts) {
+          console.log(
+            `   ⏳ "비회원 예약" 버튼을 찾을 수 없음, 재시도 중... (${attempt}/${maxNonMemberButtonAttempts})`
+          );
+          await delay(1000);
+        }
+      }
 
+      if (!nonMemberButtonClicked) {
+        console.log('   ❌ "비회원 예약" 버튼을 찾을 수 없음 (최종 실패)\n');
+      } else {
         // 리다이렉트 또는 alert 대기
         await delay(800);
 
         // alert가 나타났는지 확인
         if (alertAppeared) {
           console.log('   ❌ 예약 불가 (alert 발생)\n');
-          break;
-        }
-        // 리다이렉트 또는 alert 대기
-        await delay(800);
-
-        // 페이지 리다이렉트 확인
-        const newUrl = page.url();
-        const redirected = currentUrl !== newUrl;
-
-        if (redirected) {
-          console.log('   ✅ 페이지 리다이렉트 감지 - 예약 가능!');
-
-          console.log(`   📝 예약 이름: ${bookingName || '(이름 없음)'}`);
-
-          // 메일 발송
-          await sendEmail({
-            url: task.url,
-            name: `${formattedDate} / ${bookingName}`
-          });
-
-          console.log('   ✅ 메일 발송 완료\n');
         } else {
-          console.log('   ⚠️ 리다이렉트가 발생하지 않음 - 상태 불명확\n');
+          // 리다이렉트 또는 alert 대기
+          await delay(800);
+
+          // 페이지 리다이렉트 확인
+          const newUrl = page.url();
+          const redirected = currentUrl !== newUrl;
+
+          if (redirected) {
+            console.log('   ✅ 페이지 리다이렉트 감지 - 예약 가능!');
+
+            console.log(`   📝 예약 이름: ${bookingName || '(이름 없음)'}`);
+
+            // 메일 발송
+            await sendEmail({
+              url: task.url,
+              name: `${formattedDate} / ${bookingName}`
+            });
+
+            console.log('   ✅ 메일 발송 완료\n');
+          } else {
+            console.log('   ⚠️ 리다이렉트가 발생하지 않음 - 상태 불명확\n');
+          }
         }
-
-        break; // 첫 번째 "예약하기" 버튼만 확인
       }
-    }
-
-    if (!reserveButtonFound) {
-      console.log('   ⚠️ "예약하기" 버튼을 찾을 수 없음\n');
     }
   } catch (e) {
     console.log(`   ❌ 오류 발생:`, e);
