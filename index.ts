@@ -65,7 +65,7 @@ const delay = (ms: number) =>
   });
 
 // 병렬 실행 개수 설정 (1 = 순차 실행, 2 이상 = 병렬 실행)
-const CONCURRENT_LIMIT = 21;
+const CONCURRENT_LIMIT = 7;
 
 // 메일 발송 기록 저장 (URL -> 마지막 발송 시간)
 const emailSentHistory = new Map<string, number>();
@@ -146,7 +146,7 @@ async function sendEmail({ url, name }: { url: string; name: string }) {
   });
 
   await transporter.sendMail({
-    from: '"Yuki" <nonamep765@gmail.com>',
+    from: '"Yuki" <zz11zz3383@gmail.com>',
     to: targetEmailList.join(', '),
     subject: `단편선 ${name} 예약가능!!`,
     html: `
@@ -313,9 +313,7 @@ async function checkReservation(browser: Browser, task: SearchTask): Promise<voi
               console.log('   ✅ 메일 발송 완료\n');
             } else {
               const lastSent = emailSentHistory.get(task.url);
-              const minutesAgo = lastSent
-                ? Math.floor((Date.now() - lastSent) / 1000 / 60)
-                : 0;
+              const minutesAgo = lastSent ? Math.floor((Date.now() - lastSent) / 1000 / 60) : 0;
               console.log(
                 `   ⏭️  메일 발송 건너뜀 (${minutesAgo}분 전에 이미 발송됨, 30분 후 재발송 가능)\n`
               );
