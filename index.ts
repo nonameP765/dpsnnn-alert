@@ -67,6 +67,12 @@ const delay = (ms: number) =>
 // 병렬 실행 개수 설정 (1 = 순차 실행, 2 이상 = 병렬 실행)
 const CONCURRENT_LIMIT = 21;
 
+// 메일 발송 기록 저장 (URL -> 마지막 발송 시간)
+const emailSentHistory = new Map<string, number>();
+
+// 메일 중복 발송 방지 시간 (30분)
+const EMAIL_COOLDOWN_MS = 30 * 60 * 1000;
+
 // 오늘 포함 1주일간의 날짜를 YYYYMMDD 형식으로 반환 (주말 포함)
 const getWeekDates = (): string[] => {
   const dates: string[] = [];
@@ -79,6 +85,44 @@ const getWeekDates = (): string[] => {
 
   return dates;
 };
+
+// 메일을 보낼 수 있는지 확인 (30분 이내 중복 발송 방지)
+function canSendEmail(url: string): boolean {
+  const now = Date.now();
+  const lastSent = emailSentHistory.get(url);
+
+  if (!lastSent) {
+    return true;
+  }
+
+  const timeSinceLastSent = now - lastSent;
+  return timeSinceLastSent >= EMAIL_COOLDOWN_MS;
+}
+
+// 메일 발송 기록 저장
+function recordEmailSent(url: string): void {
+  emailSentHistory.set(url, Date.now());
+}
+
+// 오래된 메일 발송 기록 정리 (30분 이상 지난 기록 삭제)
+function cleanupOldEmailHistory(): void {
+  const now = Date.now();
+  const keysToDelete: string[] = [];
+
+  emailSentHistory.forEach((timestamp, url) => {
+    if (now - timestamp >= EMAIL_COOLDOWN_MS) {
+      keysToDelete.push(url);
+    }
+  });
+
+  keysToDelete.forEach((key) => {
+    emailSentHistory.delete(key);
+  });
+
+  if (keysToDelete.length > 0) {
+    console.log(`🧹 오래된 메일 발송 기록 ${keysToDelete.length}개 정리 완료`);
+  }
+}
 
 async function sendEmail({ url, name }: { url: string; name: string }) {
   // 개발 모드일 때는 콘솔 로그만 출력
@@ -255,13 +299,27 @@ async function checkReservation(browser: Browser, task: SearchTask): Promise<voi
 
             console.log(`   📝 예약 이름: ${bookingName || '(이름 없음)'}`);
 
-            // 메일 발송
-            await sendEmail({
-              url: task.url,
-              name: `${formattedDate} / ${bookingName}`
-            });
+            // 30분 이내 중복 발송 확인
+            if (canSendEmail(task.url)) {
+              // 메일 발송
+              await sendEmail({
+                url: task.url,
+                name: `${formattedDate} / ${bookingName}`
+              });
 
-            console.log('   ✅ 메일 발송 완료\n');
+              // 발송 기록 저장
+              recordEmailSent(task.url);
+
+              console.log('   ✅ 메일 발송 완료\n');
+            } else {
+              const lastSent = emailSentHistory.get(task.url);
+              const minutesAgo = lastSent
+                ? Math.floor((Date.now() - lastSent) / 1000 / 60)
+                : 0;
+              console.log(
+                `   ⏭️  메일 발송 건너뜀 (${minutesAgo}분 전에 이미 발송됨, 30분 후 재발송 가능)\n`
+              );
+            }
           } else {
             console.log('   ⚠️ 리다이렉트가 발생하지 않음 - 상태 불명확\n');
           }
@@ -285,6 +343,9 @@ async function runCrawlingCycle(cycleNumber: number): Promise<void> {
     `🔄 사이클 #${cycleNumber} 시작 - ${dayjs().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss')}`
   );
   console.log(`${'='.repeat(80)}\n`);
+
+  // 오래된 메일 발송 기록 정리
+  cleanupOldEmailHistory();
 
   // 1주일간의 날짜 가져오기 (주말 포함)
   const weekDates = getWeekDates();
