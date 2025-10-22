@@ -417,7 +417,7 @@ async function runCrawlingCycle(cycleNumber: number): Promise<void> {
       // 현재 배치의 모든 작업이 완료될 때까지 대기
       await Promise.all(batchPromises);
 
-      await delay(2000);
+      await delay(1000);
     }
 
     console.log(`\n✅ 사이클 #${cycleNumber} 완료!`);
