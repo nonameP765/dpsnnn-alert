@@ -26,7 +26,7 @@ env:
 
 jobs:
   build:
-    runs-on: dpsn-action-1
+    runs-on: dpsn-action
     steps:
       - uses: actions/checkout@v4
       - name: Set up Bun
