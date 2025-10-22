@@ -18,29 +18,44 @@ const DPSNNN_G_URL = 'https://www.dpsnnn.com/reserve_g';
 const isDevelopment = process.env.NODE_ENV === 'development';
 
 // 개발 모드일 때 기본값 사용
-const {
-  SENDER_GMAIL_USER,
-  SENDER_GMAIL_PASSWORD,
-  TARGET_GMAIL_USER,
-  // G_SEARCH_LIST = isDevelopment ? '25,5,6,7,8,9,10,11,12,36,35,34,33,32,31,30,29,28' : undefined
-  G_SEARCH_LIST = isDevelopment ? '25,5,6,7,8,9,10,11,12,36,35,34,33,32,31,30,29,28' : undefined
-  // SS_SEARCH_LIST = isDevelopment ? '' : undefined
-} = process.env;
+const { SENDER_GMAIL_USER, SENDER_GMAIL_PASSWORD, TARGET_GMAIL_USER } = process.env;
 
 type SearchItem = { idx: string };
 
-// 환경변수에서 검색 리스트 파싱 (쉼표로 구분)
-const parseSearchList = (envValue: string | undefined): SearchItem[] => {
-  if (!envValue) return [];
-  return envValue
-    .split(',')
-    .map((idx) => idx.trim())
-    .filter((idx) => idx.length > 0)
-    .map((idx) => ({ idx }));
-};
+// 전체 idx 리스트 (화요일, 금요일용)
+const fullIdxList: SearchItem[] = [
+  { idx: '25' },
+  { idx: '5' },
+  { idx: '6' },
+  { idx: '7' },
+  { idx: '8' },
+  { idx: '9' },
+  { idx: '10' },
+  { idx: '11' },
+  { idx: '12' }
+];
 
-const gSearchList: SearchItem[] = parseSearchList(G_SEARCH_LIST);
-// const ssSearchList: SearchItem[] = parseSearchList(SS_SEARCH_LIST);
+// 제한된 idx 리스트 (주말 및 월/수/목용)
+const limitedIdxList: SearchItem[] = [{ idx: '11' }, { idx: '12' }];
+
+// 날짜(YYYYMMDD)에 따라 조회할 idx 리스트 반환
+function getIdxListForDate(dateStr: string): SearchItem[] {
+  const date = dayjs(dateStr, 'YYYYMMDD');
+  const dayOfWeek = date.day(); // 0: 일요일, 1: 월요일, ..., 6: 토요일
+
+  // 주말 (토요일=6, 일요일=0)
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    return limitedIdxList;
+  }
+
+  // 화요일(2) 또는 금요일(5)
+  if (dayOfWeek === 2 || dayOfWeek === 5) {
+    return fullIdxList;
+  }
+
+  // 월요일(1), 수요일(3), 목요일(4)
+  return [];
+}
 
 const parseTargetEmailList = (envValue: string | undefined): string[] => {
   if (!envValue) return [];
@@ -65,7 +80,7 @@ const delay = (ms: number) =>
   });
 
 // 병렬 실행 개수 설정 (1 = 순차 실행, 2 이상 = 병렬 실행)
-const CONCURRENT_LIMIT = 7;
+const CONCURRENT_LIMIT = 1;
 
 // 메일 발송 기록 저장 (URL -> 마지막 발송 시간)
 const emailSentHistory = new Map<string, number>();
@@ -353,11 +368,23 @@ async function runCrawlingCycle(cycleNumber: number): Promise<void> {
       .join(', ')}\n`
   );
 
-  // 각 idx와 날짜 조합으로 SearchTask 생성
+  // 각 날짜와 해당 날짜에 맞는 idx 조합으로 SearchTask 생성
   const searchTasks: SearchTask[] = [];
+  const dateIdxInfo: { date: string; idxCount: number; dayName: string }[] = [];
 
-  for (const item of gSearchList) {
-    for (const date of weekDates) {
+  for (const date of weekDates) {
+    const idxList = getIdxListForDate(date);
+    const dayOfWeek = dayjs(date, 'YYYYMMDD').day();
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    const dayName = dayNames[dayOfWeek];
+
+    dateIdxInfo.push({
+      date: dayjs(date, 'YYYYMMDD').format('YYYY-MM-DD'),
+      idxCount: idxList.length,
+      dayName
+    });
+
+    for (const item of idxList) {
       searchTasks.push({
         idx: item.idx,
         date,
@@ -366,10 +393,12 @@ async function runCrawlingCycle(cycleNumber: number): Promise<void> {
     }
   }
 
-  console.log(
-    `🔍 총 ${searchTasks.length}개의 검색 작업 (idx ${gSearchList.length}개 × 날짜 ${weekDates.length}개)`
-  );
-  console.log(`⏱️  ${CONCURRENT_LIMIT}개씩 병렬로 처리합니다...\n`);
+  console.log(`🔍 총 ${searchTasks.length}개의 검색 작업`);
+  dateIdxInfo.forEach((info) => {
+    const category = info.idxCount === fullIdxList.length ? '전체' : '제한';
+    console.log(`   - ${info.date}(${info.dayName}): ${info.idxCount}개 idx (${category})`);
+  });
+  console.log(`\n⏱️  ${CONCURRENT_LIMIT}개씩 병렬로 처리합니다...\n`);
 
   const browser = await puppeteer.launch({
     args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -387,6 +416,8 @@ async function runCrawlingCycle(cycleNumber: number): Promise<void> {
 
       // 현재 배치의 모든 작업이 완료될 때까지 대기
       await Promise.all(batchPromises);
+
+      await delay(2000);
     }
 
     console.log(`\n✅ 사이클 #${cycleNumber} 완료!`);
