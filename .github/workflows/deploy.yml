@@ -1,0 +1,27 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: setsuna.kr
+          username: yuki
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: 7777
+          timeout: 30m
+          script: |
+            export PATH=/usr/local/bin:/usr/bin:/bin:$PATH
+            cd ~/dpsnnn-alert
+            git pull origin main
+            docker compose build
+            docker compose up -d

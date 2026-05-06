@@ -1,0 +1,38 @@
+services:
+  dpsnnn-alert:
+    build: .
+    image: dpsnnn-alert:latest
+    container_name: dpsnnn-alert
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./data:/app/data
+    init: true
+    stop_grace_period: 5s
+    command: ["bun", "run", "index.ts"]
+
+  dpsnnn-discover:
+    image: dpsnnn-alert:latest
+    container_name: dpsnnn-discover
+    restart: unless-stopped
+    depends_on:
+      - dpsnnn-alert
+    environment:
+      TZ: Asia/Seoul
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      DISCOVER_HOUR: "23"
+      DISCOVER_MINUTE: "50"
+      SCAN_IDX_MAX: "100"
+      SCAN_CONCURRENCY: "1"
+      SCAN_PER_REQUEST_DELAY_MS: "500"
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./data:/app/data
+    init: true
+    stop_grace_period: 5s
+    command: ["bun", "run", "discover.ts"]

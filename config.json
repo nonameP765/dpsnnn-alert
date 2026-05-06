@@ -1,0 +1,29 @@
+{
+  "checkIntervalSeconds": 60,
+  "lookAheadDays": 7,
+  "concurrentLimit": 1,
+  "perRequestDelayMs": 1000,
+  "notifyCooldownMinutes": 30,
+  "targets": [
+    {
+      "name": "단편선 강남",
+      "alias": "g",
+      "urlTemplate": "https://www.dpsnnn.com/reserve_g?idx={idx}&day={date}&endDay={date}",
+      "daysOfWeek": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+      "idxList": "auto",
+      "activeWindows": [
+        { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "from": "00:00", "to": "23:59" }
+      ]
+    },
+    {
+      "name": "단편선 성수",
+      "alias": "s",
+      "urlTemplate": "https://dpsnnn-s.imweb.me/reserve_ss?idx={idx}&day={date}&endDay={date}",
+      "daysOfWeek": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+      "idxList": "auto",
+      "activeWindows": [
+        { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "from": "00:00", "to": "23:59" }
+      ]
+    }
+  ]
+}

@@ -54,3 +54,8 @@ storybook-static
 /lib
 
 .cache
+
+.env
+
+/data/*
+!/data/.gitkeep

@@ -1,0 +1,17 @@
+.git
+.github
+.cache
+node_modules
+.idea
+.vscode
+*.log
+.env
+.env.*
+flake.nix
+flake.lock
+.eslintrc.js
+.prettierrc
+.puppeteerrc.cjs
+docker-compose.yml
+Dockerfile
+.dockerignore
